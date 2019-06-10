@@ -1,328 +1,461 @@
-
+//
+// Created by 郑文鑫 on 2019-03-09.
+//
 #include "utility.hpp"
 #include <functional>
 #include <cstddef>
-#include <map>
+#include "exception.hpp"
 #include <fstream>
-#include <stdio.h>
+#include <cstring>
 
-const int size_M = 1000;
-const int size_L = 200;
 
-using namespace std;
+const static int M = 1000;
+
+const static int L = 400;
+
+const int empty_offset = -1;
 
 namespace sjtu {
-	typedef size_t position;
 
-	template <class Key, class Value, class Compare = std::less<Key> >
+	template<class Key, class Value, class Compare = std::less<Key> >
 	class BTree {
-	public:
+	private:
 		typedef pair<Key, Value> value_type;
-		struct inter_node {
-			int current_size;
-			position cur_offset;
-			position parent, leftgood, rightgood;
-			bool rank;//判断孩子节点是否是叶子0为孩子是叶子1为孩子是节点
-			position child[size_M + 1];
-			Key keylist[size_M + 1];
-			inter_node() {
-				cur_offset = 0;
-				parent = 0;
-				leftgood = 0;
-				rightgood = 0;
-				for (int i = 0; i < current_size; ++i) child[i] = 0;
-			}
+		char name[10] = "nice.txt";
+
+		struct basic_info {
+			int head = 0;
+			int tail = 0;
+			int root = 0;
+			int end = 0;
+			int tree_size = 0;
 		};
-		struct leaf_node {
-			position cur_offset;
-			position parent, leftgood, rightgood;
-			int current_size;
-			value_type data[size_L + 1];
-			leaf_node() {
-				cur_offset = 0;
-				parent = 0;
-				leftgood = 0;
-				rightgood = 0;
+		basic_info basic_information;
+
+		int file_has_already_existed;
+		int file_is_open = 0;
+		FILE *file = nullptr;
+
+		// ================================= file operation ===================================== //
+		void openfile() {
+			file_has_already_existed = 1;
+			if (file_is_open == 0) {   //考虑反复开关
+				file = fopen(name, "rb+");
+				if (file == nullptr) {
+					file_has_already_existed = 0;
+					file = fopen(name, "w");   // 存在则删除重创
+					fclose(file);
+					file = fopen(name, "rb+");
+				}
+				else {
+					fileread(&basic_information, 0, sizeof(basic_info));
+				}
+				file_is_open = 1;
 			}
-		};
-		struct basic_information {
-			position head;
-			position root;
-			position tail;
-			position end;
-
-			int Treesize;
-
-			basic_information() {
-				head = 0;
-				root = 0;
-				tail = 0;
-				Treesize = 0;
-			}
-		};
-		FILE *file;
-
-		basic_information inf;
-		// Your private members go here
-
-		void writeNode(void *thing, size_t offset, size_t size, size_t num) {
-			if (fseek(file, offset, 0)) throw "error";
-			fwrite(thing, size, num, file);
-			fflush(file);
 		}
-		// Default Constructor and Copy Constructor
-		BTree() {
-			file = fopen("123.txt", "w");
-			fclose(file);
-			file = fopen("123.txt", "rb+");
 
-			inter_node Root;
-			leaf_node Head;
-			inf.Treesize = 0;
-			Root.cur_offset = inf.root = sizeof(basic_information);
-			inf.head = Head.cur_offset = sizeof(basic_information) + sizeof(inter_node);
-			inf.tail = sizeof(basic_information) + sizeof(inter_node) + sizeof(leaf_node);
-			inf.end = inf.tail;
-			Root.parent = 0;
-			Root.current_size = 1; Head.current_size = 0;
-			Root.child[0] = Head.cur_offset;
-			Head.parent = Root.cur_offset;
-			Root.rank = 0;//孩子是叶子
-			writeNode(&inf, 0, sizeof(basic_information), 1);
-			writeNode(&Root, Root.cur_offset, sizeof(inter_node), 1);
-			writeNode(&Head, Head.cur_offset, sizeof(leaf_node), 1);
+		inline void closeFile() {
+			if (file_is_open == 1) {
+				fclose(file);
+				file_is_open = 0;
+			}
+		}
+
+		inline void fileread(void *place, int offset, int size) const {
+			fseek(file, offset, 0);
+			fread(place, size, 1, file);
+		}
+
+		inline void filewrite(void *place, int offset, int size) const {      //本文总是读写1
+			fseek(file, offset, 0);
+			fwrite(place, size, 1, file);
+		}
+
+		// ================================= file operation ===================================== //
+
+
+		struct Node {
+			friend class BTree;
+
+			int type;        //0代表非叶，1代表叶子
+			int offset;
+			int parent;      //父节点偏移量
+			int prev, next;     //前后节点偏移量（两个节点写起来太烦了）
+			int size;
+			value_type child[M + 1];
+
+			Node(int t = 0, int o = empty_offset, int p = empty_offset, int pre = empty_offset, int n = empty_offset,
+				int s = 0) {
+				type = t;
+				offset = o;
+				parent = p;
+				prev = pre;
+				next = n;
+			}
+
+			Node(const Node &node) {
+				type = node.type;
+				parent = node.parent;
+				size = node.size;
+				prev = node.prev;
+				next = node.next;
+				offset = node.offset;
+				for (int i = 0; i < size; i++) {
+					child[i].first = node.child[i].first;       //first->key
+
+					child[i].second = node.child[i].second;        //second->value
+				}
+			}
+
+			Node &operator=(const Node &other) {
+				type = other.type;
+				parent = other.parent;
+				prev = other.prev;
+				next = other.next;
+				size = other.size;
+				offset = other.offset;
+				for (int i = 0; i < size; i++) {
+					child[i].first = other.child[i].first;
+					child[i].second = other.child[i].second;
+				}
+				return *this;
+			}
+
+			int findpos(const Key &key) {      //找出当前节点中关键字位置
+				int i;
+				for (i = 0; i < size; i++) {
+					if (child[i].first >= key)return i;     //child[i-1]<=key<=child[i]
+				}
+			}
+
+			int insert(const Key &key, const Value &value) {      //调用findpos将该点插入到整个节点中
+				int pos = findpos(key);
+
+				if (pos < size && child[pos].first == key)return empty_offset;
+
+				for (int i = size - 1; i >= pos; i--) {
+					child[i + 1].first = child[i].first;
+					child[i + 1].second = child[i].second;
+				}
+
+				child[pos].first = key;
+				child[pos].second = value;
+				size++;
+
+				return pos;
+			}
+
+		};
+
+
+		void splitNode(Node &node, Node &parent) {    //分裂非根节点
+
+			Node new_node(node.type, basic_information.end, parent.offset, empty_offset, empty_offset,
+				node.size - node.size / 2);   //分裂出来的结点只好甩文件尾,中间的给右边
+
+			parent.insert(node.child[node.size / 2].first, new_node.offset);
+
+			basic_information.end += sizeof(Node);
+
+			for (int i = node.size / 2; i < node.size; i++) {       //本儿
+				new_node.child[i - node.size / 2].first = node.child[i].first;
+				new_node.child[i - node.size / 2].second = node.child[i].second;
+			}
+
+			if (node.type == 1) {
+				new_node.prev = node.offset;
+				new_node.next = node.next;
+				node.next = new_node.offset;   //接入单链表
+				if (new_node.next != empty_offset) {
+					Node nextNode;
+					fileread(&nextNode, new_node.next, sizeof(Node));
+					nextNode.prev = new_node.offset;
+					filewrite(&nextNode, nextNode.offset, sizeof(Node));
+				}
+			}
+			else {
+				Node tmp_node;
+				for (int i = node.size / 2; i < node.size; i++) {
+					fileread(&tmp_node, node.child[i].second, sizeof(Node));      //value是儿子偏移量
+					tmp_node.parent = new_node.offset;
+					filewrite(&tmp_node, tmp_node.offset, sizeof(Node));
+				}
+			}
+
+			node.size /= 2;
+
+			filewrite(&new_node, new_node.offset, sizeof(Node));
+			filewrite(&node, node.offset, sizeof(Node));
+			filewrite(&parent, parent.offset, sizeof(Node));
+		}
+
+		void splitroot(Node &node) {
+
+			Node newroot(0, basic_information.end, empty_offset, empty_offset, empty_offset, 2);
+			Node new_node(0, basic_information.end, newroot.offset, empty_offset, empty_offset,
+				node.size - node.size / 2);
+			Node tmp_node;
+
+			basic_information.end += sizeof(Node);
+			basic_information.end += sizeof(Node);
+
+			node.parent = newroot.offset;
+
+			for (int i = node.size / 2; i < node.size; i++) {
+				fileread(&tmp_node, node.child[i].second, sizeof(Node));
+				tmp_node.parent = new_node.offset;
+				filewrite(&tmp_node, tmp_node.offset, sizeof(Node));
+			}
+
+			for (int i = node.size / 2; i < node.size; i++) {
+				new_node.child[i - node.size / 2].first = node.child[i].first;
+				new_node.child[i - node.size / 2].second = node.child[i].second;
+			}
+
+			newroot.child[0].first = node.child[0].first;
+			newroot.child[0].second = node.offset;
+
+			newroot.child[1].first = new_node.child[0].first;
+			newroot.child[1].second = new_node.offset;
+
+			basic_information.root = newroot.offset;
+
+			node.size /= 2;
+
+			filewrite(&new_node, new_node.offset, sizeof(Node));
+			filewrite(&node, node.offset, sizeof(Node));
+			filewrite(&newroot, newroot.offset, sizeof(Node));
+
+		}
+
+		// Your private members go here
+	public:
+
+
+		class const_iterator;
+
+		class iterator {
+		private:
+			// Your private members go here
+		public:
+			/*bool modify(const Value& value){
+
+			}
+			iterator() {
+				// TODO Default Constructor
+			}
+			iterator(const iterator& other) {
+				// TODO Copy Constructor
+			}
+			// Return a new iterator which points to the n-next elements
+			iterator operator++(int) {
+				// Todo iterator++
+			}
+			iterator& operator++() {
+				// Todo ++iterator
+			}
+			iterator operator--(int) {
+				// Todo iterator--
+			}
+			iterator& operator--() {
+				// Todo --iterator
+			}
+			// Overloaded of operator '==' and '!='
+			// Check whether the iterators are same
+			bool operator==(const iterator& rhs) const {
+				// Todo operator ==
+			}
+			bool operator==(const const_iterator& rhs) const {
+				// Todo operator ==
+			}
+			bool operator!=(const iterator& rhs) const {
+				// Todo operator !=
+			}
+			bool operator!=(const const_iterator& rhs) const {
+				// Todo operator !=
+			}*/
+		};
+
+		class const_iterator {
+			// it should has similar member method as iterator.
+			//  and it should be able to construct from an iterator.
+		private:
+			// Your private members go here
+		public:
+			/*
+			const_iterator() {
+				// TODO
+			}
+			const_iterator(const const_iterator& other) {
+				// TODO
+			}
+			const_iterator(const iterator& other) {
+				// TODO
+			}*/
+			// And other methods in iterator, please fill by yourself.
+		};
+		// Default Constructor and Copy Constructor
+
+
+		BTree() {
+			file = NULL;
+			openfile();
+
+			if (file_has_already_existed == 0) {
+
+				Node rootNode(0, sizeof(basic_info), empty_offset, empty_offset, empty_offset, 1);
+				Node firstNode(1, sizeof(basic_info) + sizeof(Node), rootNode.offset, empty_offset, empty_offset, 0);
+				rootNode.child[0].second = firstNode.offset;
+
+				basic_information.root = rootNode.offset;
+				basic_information.head = basic_information.tail = firstNode.offset;
+				basic_information.tree_size = 0;
+
+				basic_information.end = sizeof(basic_info) + 2 * sizeof(Node);
+
+				filewrite(&basic_information, 0, sizeof(basic_info));
+				filewrite(&rootNode, rootNode.offset, sizeof(Node));
+				filewrite(&firstNode, firstNode.offset, sizeof(Node));
+			}
 			// Todo Default
 		}
 
-		~BTree() {
-			fclose(file);
+		BTree(const BTree &other) {
+
+			// Todo Copy
 		}
+
+		BTree &operator=(const BTree &other) {
+
+			// Todo Assignment
+		}
+		// Clear the BTree
+
+		~BTree() {
+			closeFile();
+		}
+
+		Value at(const Key &key) {
+
+			Node tmp_node;
+			fileread(&tmp_node, basic_information.root, sizeof(Node));
+
+			int i;
+
+			while (tmp_node.type == 0) {
+				i = 0;
+				while (i < tmp_node.size && key >= tmp_node.child[i].first)i++;
+				if (i > 0)i--;      //比最小儿子小不代表比最小孙子小
+				fileread(&tmp_node, tmp_node.child[i].second, sizeof(Node));
+			}
+			for (i = 0; i < tmp_node.size; i++) {   // 找到叶节点啦
+				if (tmp_node.child[i].first == key)
+					break;
+			}
+			if (i < tmp_node.size)
+				return tmp_node.child[i].second;
+			else
+				return empty_offset;    //配合count()
+		}
+
 		// Insert: Insert certain Key-Value into the database
 		// Return a pair, the first of the pair is the iterator point to the new
 		// element, the second of the pair is Success if it is successfully inserted
+		pair<iterator, OperationResult> insert(const Key &key, const Value &value) {
+			pair<iterator, OperationResult> p;
 
-		OperationResult insertdata(const Key key, const Value value) {
-			inter_node tmp;
-			inf.Treesize++;
-			if (fseek(file, inf.root, 0)) throw "error";
+			p.second = Success;
 
-			fread(&tmp, sizeof(inter_node), 1, file);
-			while (tmp.rank) {
-				int i;
-				for (i = 0; i < tmp.current_size; ++i) if (key < tmp.keylist[i]) break;
-				if (fseek(file, tmp.child[i], 0)) throw "error";
+			Node node;
 
-				fread(&tmp, sizeof(inter_node), 1, file);
-			}
+
+			fileread(&node, basic_information.root, sizeof(Node));
+
 			int i;
-			for (i = 0; i < tmp.current_size; ++i) if (key < tmp.keylist[i]) break;
-			int insert_target = i;
-			leaf_node tmpdata;
-			if (fseek(file, tmp.child[i], 0))
-				throw "error";
 
-			fread(&tmpdata, sizeof(leaf_node), 1, file);
-			for (i = 0; i < tmpdata.current_size; ++i) {
-				if (key == tmpdata.data[i].first) return Fail;
-				if (key < tmpdata.data[i].first) break;
-			}
-			for (int j = tmpdata.current_size; j > i + 1; --j) {
-				tmpdata.data[j].first = tmpdata.data[j - 1].first;
-				tmpdata.data[j].second = tmpdata.data[j - 1].second;
+			while (node.type == 0) {
+				i = 0;
+				while (i < node.size && node.child[i].first < key)i++;
+				if (i == 0) {    //沿路直接改中间节点,不同于at()
+					node.child[0].first = key;
+					filewrite(&node, node.offset, sizeof(Node));
+				}
+				else i--;
+				fileread(&node, node.child[i].second, sizeof(Node));
 			}
 
-			tmpdata.data[i].first = key;
-			tmpdata.data[i].second = value;
-			tmpdata.current_size++;
+			basic_information.tree_size++;
 
-			writeNode(&tmpdata, tmpdata.cur_offset, sizeof(leaf_node), 1);
-			if (tmpdata.current_size > size_L) {
-				splitleaf(tmpdata, tmp, insert_target);
-				if (fseek(file, tmpdata.parent, 0))  throw "error";
-				fread(&tmp, sizeof(inter_node), 1, file);
-				if (tmp.current_size > size_M) {
-					while (tmp.parent != 0) {
-						splitnode(tmp);
-						if (fseek(file, tmp.parent, 0))  throw "error";
-						fread(&tmp, sizeof(inter_node), 1, file);
-						if (tmp.current_size <= size_M) break;
-					}
-					if (tmp.current_size > size_M) splitRoot(tmp);
+			Node parent;
+			fileread(&parent, node.parent, sizeof(Node));
+
+			if (i == 0)
+				parent.child[0].first = node.child[0].first;    //中间节点没有value
+
+			if (node.size >= L) {    //要分裂了哥
+				splitNode(node, parent);
+				node = parent;
+
+				if (parent.offset != basic_information.root)     //不小心->根没有parent
+					fileread(&parent, node.parent, sizeof(Node));
+
+				while (node.size > M - 1 && node.offset != basic_information.root) {    //一路向上分裂
+					splitNode(node, parent);
+
+					node = parent;
+					if (node.offset != basic_information.root)
+						fileread(&parent, parent.parent, sizeof(Node));
+				}
+				if (node.offset == basic_information.root && node.size > M - 1) {    //分裂到根还没完
+					splitroot(node);
 				}
 			}
-			return Success;
-		}
-		void splitnode(inter_node &tmpnode) {
-			inter_node newnode;
+			else
+				filewrite(&node, node.offset, sizeof(Node));
 
-			int num = tmpnode.current_size;
-			newnode.rank = tmpnode.rank;
-			newnode.current_size = tmpnode.current_size - (tmpnode.current_size >> 1);
-			tmpnode.current_size = tmpnode.current_size >> 1;
-			newnode.parent = tmpnode.parent;
-			for (int i = tmpnode.current_size; i < num; ++i) {
-				newnode.keylist[i - tmpnode.current_size] = tmpnode.keylist[i];
-				newnode.child[i - tmpnode.current_size] = tmpnode.child[i];
-			}
+			//filewrite(&basic_information, 0, sizeof(basic_info));      照理说应该要但与测试无关
 
-			newnode.cur_offset = inf.end;
-			inf.end += sizeof(inter_node);
-			writeNode(&tmpnode, tmpnode.cur_offset, sizeof(inter_node), 1);
-			writeNode(&newnode, newnode.cur_offset, sizeof(inter_node), 1);
-			inter_node Treeson;
-			leaf_node datason;
-			/*
-			为儿子们赋值父亲节点地址
-			*/
-			for (int i = 0; i < newnode.current_size; ++i) {
-				if (fseek(file, newnode.child[i], 0)) throw "error";
-				if (tmpnode.rank) {
-					fread(&Treeson, sizeof(inter_node), 1, file);
-
-					Treeson.parent = newnode.cur_offset;
-					writeNode(&Treeson, newnode.child[i], sizeof(inter_node), 1);
-				}
-				else {
-					fread(&datason, sizeof(leaf_node), 1, file);
-
-					datason.parent = newnode.cur_offset;
-					writeNode(&datason, newnode.child[i], sizeof(leaf_node), 1);
-				}
-			}
-			inter_node par;
-			if (fseek(file, tmpnode.parent, 0)) throw "error";
-			fread(&par, sizeof(inter_node), 1, file);
-			int posi = findNode(par, tmpnode.keylist[0]);
-			for (int i = par.current_size; i > posi + 1; --i) {
-				par.keylist[i] = par.keylist[i - 1];
-				par.child[i] = par.child[i - 1];
-			}
-			par.keylist[posi + 1] = newnode.keylist[0];
-			par.child[posi + 1] = newnode.cur_offset;
-			writeNode(&par, par.cur_offset, sizeof(inter_node), 1);
-		}
-		void splitRoot(inter_node &root) {
-			inter_node newRoot;
-			inter_node newnode;
-			int num;
-			newRoot.rank = 1;
-			newRoot.parent = 0;
-			newRoot.cur_offset = inf.root = inf.end;
-			//writeNode(&newRoot, inf.end, sizeof(inter_node), file);
-			inf.end += sizeof(inter_node);
-			newnode.cur_offset = inf.end;
-			inf.end += sizeof(inter_node);
-			num = root.current_size;
-			newnode.rank = root.rank;
-			newnode.current_size = root.current_size - (root.current_size >> 1);
-			root.current_size = root.current_size >> 1;
-			for (int i = root.current_size; i < num; ++i) {
-				newnode.keylist[i - root.current_size] = root.keylist[i];
-				newnode.child[i - root.current_size] = root.child[i];
-			}
-			newnode.parent = root.parent = inf.root;
-			newRoot.keylist[0] = root.keylist[0];
-			newRoot.child[0] = root.cur_offset;
-			newRoot.keylist[1] = newnode.keylist[0];
-			newRoot.child[1] = newnode.cur_offset;
-			writeNode(&newRoot, newRoot.cur_offset, sizeof(inter_node), 1);
-			writeNode(&newnode, newnode.cur_offset, sizeof(inter_node), 1);
-
-		}
-		void splitleaf(leaf_node &tmpdata, inter_node &tmp, const int sonposi) {
-			leaf_node newleaf;
-			Key newkey;
-			int num = tmpdata.current_size;
-			newleaf.current_size = tmpdata.current_size - (tmpdata.current_size >> 1);
-			tmpdata.current_size = tmpdata.current_size >> 1;
-			for (int i = tmpdata.current_size; i < num; ++i) {
-				tmpdata.data[i].first = tmpdata.data[i - 1].first;
-				tmpdata.data[i].second = tmpdata.data[i - 1].second;
-			}
-			newkey = newleaf.data[0].first;
-			newleaf.parent = tmpdata.parent;
-			newleaf.cur_offset = inf.end;
-			writeNode(&tmpdata, tmpdata.cur_offset, sizeof(leaf_node), 1);
-			writeNode(&newleaf, inf.end, sizeof(leaf_node), 1);
-			for (int i = tmp.current_size - 1; i > sonposi; --i) {
-				tmp.child[i + 1] = tmp.child[i];
-				tmp.keylist[i + 1] = tmp.keylist[i];
-			}
-			tmp.child[sonposi + 1] = newleaf.cur_offset;
-			tmp.keylist[sonposi + 1] = newkey;
-			tmp.current_size++;
-			writeNode(&tmp, tmp.cur_offset, sizeof(inter_node), 1);
-			inf.end += sizeof(leaf_node);
-		}
-		OperationResult insert(const Key& key, const Value& value) {
-			return insertdata(key, value);
-		}
-		int findNode(inter_node &par, Key ke) {
-			int i;
-			for (i = 0; i < par.current_size; ++i) if (ke == par.keylist[i]) return i;
+			return p;
+			// TODO insert function
 		}
 		// Erase: Erase the Key-Value
 		// Return Success if it is successfully erased
 		// Return Fail if the key doesn't exist in the database
-		OperationResult erase(const Key& key) {
+		/*OperationResult erase(const Key& key) {
 			// TODO erase function
-			return Fail;  // If you can't finish erase part, just remaining here.
-		}
+		}*/
+		// Return a iterator to the beginning
+		iterator begin() { return iterator(); }
+
+		const_iterator cbegin() const { return const_iterator(); }
+
+		// Return a iterator to the end(the next element after the last)
+		iterator end() { return iterator(); }
+
+		const_iterator cend() const { return const_iterator(); }
 
 		// Check whether this BTree is empty
-		bool empty() const { return inf.Treesize == 0; }
+		bool empty() const {
+			return basic_information.tree_size == 0;
+		}
+
 		// Return the number of <K,V> pairs
-		size_t size() const { return inf.Treesize; }
-		// Clear the BTree
-		void clear() {
-			file = fopen("123.txt", "w");
-			fclose(file);
-			file = fopen("123.txt", "rb+");
-
-			inter_node Root;
-			leaf_node Head;
-			inf.Treesize = 0;
-			Root.cur_offset = inf.root = sizeof(basic_information);
-			inf.head = Head.cur_offset = sizeof(basic_information) + sizeof(inter_node);
-			inf.tail = sizeof(basic_information) + sizeof(inter_node) + sizeof(leaf_node);
-			inf.end = inf.tail;
-			Root.parent = 0;
-			Root.current_size = 1; Head.current_size = 0;
-			Root.child[0] = Head.cur_offset;
-			Head.parent = Root.cur_offset;
-			Root.rank = 0;//孩子是叶子
-			writeNode(&inf, 0, sizeof(basic_information), 1);
-			writeNode(&Root, Root.cur_offset, sizeof(inter_node), 1);
-			writeNode(&Head, Head.cur_offset, sizeof(leaf_node), 1);
+		size_t size() const {
+			return basic_information.tree_size;
 		}
-		// Return the value refer to the Key(key)
-		Value at(const Key& key) {
-			inter_node tmp;
 
-			if (fseek(file, inf.root, 0)) {
-
-				throw "error";
-			}
-			fread(&tmp, sizeof(inter_node), 1, file);
-			while (tmp.rank) {
-				int i;
-				for (i = 0; i < tmp.current_size; ++i) if (key < tmp.keylist[i]) break;
-				if (fseek(file, tmp.child[i], 0))
-
-					throw "error";
-
-				fread(&tmp, sizeof(inter_node), 1, file);
-			}
-			int i;
-			for (i = 0; i < tmp.current_size; ++i) if (key == tmp.keylist[i]) break;
-			return tmp.keylist[i].second;
-		}
 		/**
 		 * Returns the number of elements with key
 		 *   that compares equivalent to the specified argument,
 		 * The default method of check the equivalence is !(a < b || b > a)
 		 */
-		size_t count(const Key& key) const {}
+
+		size_t count(const Key &key) const {
+			int flag = at(key);
+			if (flag == empty_offset)return 0;
+			else return 1;    //没见过有重复元素的bpt
+		}
+
 		/**
 		 * Finds an element with key equivalent to key.
 		 * key value of the element to search for.
@@ -330,5 +463,8 @@ namespace sjtu {
 		 *   If no such element is found, past-the-end (see end()) iterator is
 		 * returned.
 		 */
-	};
-}  // namespace sjtu
+		iterator find(const Key &key) { return iterator(); }
+
+		const_iterator find(const Key &key) const { return const_iterator(); }
+	};// namespace sjtu
+}
