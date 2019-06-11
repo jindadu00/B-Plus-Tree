@@ -17,17 +17,19 @@ using namespace std;
 namespace sjtu {
 	template<class Key, class Value, class Compare = std::less<Key> >
 	class BTree {
+        //static const int M = (4000 - 2 * sizeof(size_t) - sizeof(bool) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
+        //static const int L = (4000 - 4 * sizeof(size_t) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
 		static const int M = 228;
 		static const int L = 32;
 
 		/*=========================文件操作=============================*/
-		void readFile(void *place, int offset, int num, int size) {
+		void readFile(void *place, size_t offset, int num, int size) {
 			fseek(file, offset, 0);
 			fread(place, num, size, file);
 			fflush(file);
 		}
 
-		void writeFile(void *place, int offset, int num, int size) {
+		void writeFile(void *place, size_t offset, int num, int size) {
 			fseek(file, offset, 0);
 			fwrite(place, num, size, file);
 			fflush(file);
@@ -37,22 +39,23 @@ namespace sjtu {
 	private:
 		// Your private members go here
 		FILE *file;
-		char name[50];
-
-
+		char name[20];
 
 	public:
 
-
 		struct basic_information {
-			int head;
-			int tail;
+			size_t head;
+			size_t tail;
 			size_t tree_size;
-			int root;
-			int end;
+			size_t root;
+			size_t end;
 
 			basic_information() {
-				head = tail = tree_size = root = end = 0;
+				head = 0;
+				tail = 0;
+				tree_size = 0;
+				root = 0;
+				end = 0;
 			}
 		};
 
@@ -68,7 +71,10 @@ namespace sjtu {
 			pair<Key, Value> data[L + 1];                    //叶子节点下管一串数据（不算最后一层，最后一层算卫星数据）
 
 			leaf_node(int t = 0) {
-				parent = prev = next = num = 0;
+				parent = 0;
+				prev = 0;
+				next = 0;
+				num = 0;
 				offset = t;
 				memset(data, 0, L + 1);
 			}
@@ -83,8 +89,10 @@ namespace sjtu {
 			Key data[M + 1];
 
 			inter_node(int t = 0) {
-				parent = num = son_type = 0;
 				offset = t;
+				parent = 0;
+				num = 0;
+				son_type = 0;
 				memset(son, 0, M + 1);
 				memset(data, 0, M + 1);
 			}
@@ -97,8 +105,8 @@ namespace sjtu {
 
 		private:
 			// Your private members go here
+			BTree *pt;
 			int offset;
-			BTree *currentTree;
 
 		public:
 			bool modify(const Value &value) {
@@ -107,18 +115,18 @@ namespace sjtu {
 
 			iterator() {
 				// TODO Default Constructor
-				currentTree = nullptr;
+				pt = nullptr;
 				offset = 0;
 			}
 
 			iterator(BTree *b, int p = 0) {
-				currentTree = nullptr;
+				pt = nullptr;
 				offset = p;
 			}
 
 			iterator(const iterator &other) {
 				// TODO Copy Constructor
-				currentTree = other.currentTree;
+				pt = other.pt;
 				offset = other.offset;
 			}
 
@@ -180,7 +188,7 @@ namespace sjtu {
 
 		// Default Constructor and Copy Constructor
 		BTree() {
-			strcpy(name, "WoodyJedi.txt");
+			strcpy(name, "WoodJedi.txt");
 			file = fopen(name, "rb+");
 
 			if (file == nullptr) {
@@ -189,17 +197,17 @@ namespace sjtu {
 				basic_info.end = sizeof(basic_information);    //基本信息
 
 				inter_node root(basic_info.end);
-				root.son_type = 1;
 				root.num = 1;
-				basic_info.root = root.offset;
+				root.son_type = 1;
 				basic_info.end += sizeof(inter_node);     //根节点
+				basic_info.root = root.offset;
 
 				leaf_node leaf(basic_info.end);
-				basic_info.head = basic_info.tail = leaf.offset;
 				basic_info.end += sizeof(leaf_node);       //第一个叶节点
+				basic_info.head = basic_info.tail = leaf.offset;
 
-				root.son[0] = leaf.offset;
 				leaf.parent = root.offset;
+				root.son[0] = leaf.offset;
 
 				writeFile(&basic_info, 0, 1, sizeof(basic_information));
 				writeFile(&root, root.offset, 1, sizeof(inter_node));
