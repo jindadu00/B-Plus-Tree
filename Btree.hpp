@@ -17,8 +17,8 @@ using namespace std;
 namespace sjtu {
 	template<class Key, class Value, class Compare = std::less<Key> >
 	class BTree {
-        static const int M = (4000 - 2 * sizeof(size_t) - sizeof(bool) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
-        static const int L = (4000 - 4 * sizeof(size_t) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
+		static const int M = (4000 - 2 * sizeof(size_t) - sizeof(bool) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
+		static const int L = (4000 - 4 * sizeof(size_t) - sizeof(int)) / (sizeof(Key) + sizeof(Value)) - 1;
 
 		/*=========================文件操作=============================*/
 		void readFile(void *place, size_t offset, int num, int size) {
@@ -256,7 +256,7 @@ namespace sjtu {
 				OperationResult t = min_insert(leaf, leafOffset, key, value);
 				return pair<iterator, OperationResult>(iterator(), t);
 			}
-			
+
 			readFile(&leaf, leafOffset, 1, sizeof(leaf_node));
 			OperationResult t = leaf_insert(leaf, key, value);    //第一步
 			fflush(file);
@@ -372,7 +372,7 @@ namespace sjtu {
 				newNode.son[i] = node.son[node.num + i];
 				newNode.data[i] = node.data[node.num + i];
 			}
-			            //=====处理儿子节点的父亲结点链接=======//   <-----有点特殊
+			//=====处理儿子节点的父亲结点链接=======//   <-----有点特殊
 
 			leaf_node leaf;
 			inter_node tmp;
@@ -389,7 +389,7 @@ namespace sjtu {
 				}
 			}
 
-			           //=====处理儿子节点的父亲结点链接=======//
+			//=====处理儿子节点的父亲结点链接=======//
 
 
 			if (node.offset == basic_info.root) {        //这是根的分裂
