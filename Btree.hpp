@@ -1,6 +1,10 @@
 //   518021910882
 //   杜劲达
 
+
+//   B+树优越性：由于中间节点比叶子结点信息量少，B+树高度较小，每次查询修改IO次数少，但需要到叶子结点，因此随机查询性能稳定，较快
+//               由于叶子结点之间有链接关联，范围查询与遍历性能优越
+
 #include "utility.hpp"
 #include <functional>
 #include <cstddef>
@@ -61,7 +65,7 @@ namespace sjtu {
 			int num;
 			int offset;
 
-			pair<Key, Value> data[L + 1];                    //叶子节点由一串数据
+			pair<Key, Value> data[L + 1];                    //叶子节点下管一串数据（不算最后一层，最后一层算卫星数据）
 
 			leaf_node(int t = 0) {
 				parent = prev = next = num = 0;
@@ -71,10 +75,10 @@ namespace sjtu {
 		};
 
 		struct inter_node {
-			int offset;
 			int parent;
 			int num;
-			bool son_type;     //1->叶节点   0->中间节点
+			int offset;
+			bool son_type;     //儿子节点是 1->叶节点   0->中间节点
 			int son[M + 1];
 			Key data[M + 1];
 
@@ -176,7 +180,7 @@ namespace sjtu {
 
 		// Default Constructor and Copy Constructor
 		BTree() {
-			strcpy(name, "fine.txt");
+			strcpy(name, "WoodyJedi.txt");
 			file = fopen(name, "rb+");
 
 			if (file == nullptr) {
@@ -243,19 +247,52 @@ namespace sjtu {
 			leaf_node leaf;
 
 			if (basic_info.tree_size == 0 || leafOffset == 0) {     //简化tree_size为0和key最小情况
-				OperationResult t = insertMin(leaf, leafOffset, key, value);
-				return pair<iterator, OperationResult>(iterator(nullptr), t);
+				OperationResult t = min_insert(leaf, leafOffset, key, value);
+				return pair<iterator, OperationResult>(iterator(), t);
 			}
-
+			
 			readFile(&leaf, leafOffset, 1, sizeof(leaf_node));
-			OperationResult t = leaf_insert(leaf, key, value);    //先往叶子插再慢慢推
+			OperationResult t = leaf_insert(leaf, key, value);    //第一步
 			fflush(file);
-			return pair<iterator, OperationResult>(iterator(nullptr), t);
+			return pair<iterator, OperationResult>(iterator(), t);
 		}
 
 
+		OperationResult leaf_insert(leaf_node &leaf, const Key &key, const Value &value) {     //先在叶子节点插入，再向父亲节点维护
+			int pos = 0;
 
-		void internode_insert(inter_node &node, const Key &key, int newSon) {
+			for (; pos < leaf.num; pos++) {     //找到data[pos-1]<=key<=data[pos]
+				if (key == leaf.data[pos].first)
+					return Fail;
+				if (key < leaf.data[pos].first)
+					break;
+			}
+
+			for (int i = leaf.num - 1; i >= pos; --i) {
+				leaf.data[i + 1].first = leaf.data[i].first;
+				leaf.data[i + 1].second = leaf.data[i].second;
+			}
+
+			leaf.num++;
+			basic_info.tree_size++;
+
+
+			leaf.data[pos].first = key;
+			leaf.data[pos].second = value;
+
+			writeFile(&basic_info, 0, 1, sizeof(basic_information));
+
+			if (leaf.num <= L)
+				writeFile(&leaf, leaf.offset, 1, sizeof(leaf_node));
+			else
+				leaf_split(leaf, key);
+
+			fflush(file);
+
+			return Success;
+		}
+
+		void internode_insert(inter_node &node, const Key &key, int newSon) {    //叶子结点分裂时调用
 			int pos = 0;
 			for (; pos < node.num; pos++)
 				if (key < node.data[pos]) break;
@@ -271,40 +308,6 @@ namespace sjtu {
 			fflush(file);
 		}
 
-
-		OperationResult leaf_insert(leaf_node &leaf, const Key &key, const Value &value) {
-			int pos = 0;
-
-			for (; pos < leaf.num; pos++) {
-				if (key == leaf.data[pos].first)
-					return Fail;
-				if (key < leaf.data[pos].first)
-					break;
-			}
-			for (int i = leaf.num - 1; i >= pos; --i) {
-				leaf.data[i + 1].first = leaf.data[i].first;
-				leaf.data[i + 1].second = leaf.data[i].second;
-			}
-
-			leaf.num++;
-			basic_info.tree_size++;
-
-
-			leaf.data[pos].first = key;
-			leaf.data[pos].second = value;
-
-
-			writeFile(&basic_info, 0, 1, sizeof(basic_information));
-			if (leaf.num <= L)
-				writeFile(&leaf, leaf.offset, 1, sizeof(leaf_node));
-			else
-				leaf_split(leaf, key);
-
-			fflush(file);
-
-			return Success;
-		}
-
 		void leaf_split(leaf_node &leaf, const Key &key) {
 
 			leaf_node newLeaf;
@@ -314,10 +317,10 @@ namespace sjtu {
 			leaf.num -= newLeaf.num;
 
 			newLeaf.offset = basic_info.end;
-			basic_info.end += sizeof(leaf_node);    //新家
+			basic_info.end += sizeof(leaf_node);
 			newLeaf.parent = leaf.parent;
 
-			for (int i = 0; i < newLeaf.num; i++) {    //搬家
+			for (int i = 0; i < newLeaf.num; i++) {
 				newLeaf.data[i].first = leaf.data[i + leaf.num].first;
 				newLeaf.data[i].second = leaf.data[i + leaf.num].second;
 			}
@@ -341,6 +344,7 @@ namespace sjtu {
 
 			inter_node parent;
 			readFile(&parent, leaf.parent, 1, sizeof(inter_node));
+
 			internode_insert(parent, newLeaf.data[0].first, newLeaf.offset);    //往父节点插新点
 
 			fflush(file);
@@ -349,6 +353,7 @@ namespace sjtu {
 
 
 		void internode_split(inter_node &node) {
+
 			inter_node newNode;
 			newNode.num = node.num / 2;
 			node.num -= newNode.num;
@@ -356,14 +361,17 @@ namespace sjtu {
 			newNode.son_type = node.son_type;
 			newNode.offset = basic_info.end;
 			basic_info.end += sizeof(inter_node);
+
 			for (int i = 0; i < newNode.num; ++i) {
 				newNode.son[i] = node.son[node.num + i];
 				newNode.data[i] = node.data[node.num + i];
 			}
+			            //=====处理儿子节点的父亲结点链接=======//   <-----有点特殊
+
 			leaf_node leaf;
 			inter_node tmp;
 			for (int j = 0; j < newNode.num; ++j) {
-				if (newNode.son_type) {
+				if (newNode.son_type) {              //这两个没什么两样 只是大小类型不同
 					readFile(&leaf, newNode.son[j], 1, sizeof(leaf_node));
 					leaf.parent = newNode.offset;
 					writeFile(&leaf, leaf.offset, 1, sizeof(leaf_node));
@@ -374,8 +382,30 @@ namespace sjtu {
 					writeFile(&tmp, tmp.offset, 1, sizeof(inter_node));
 				}
 			}
-			if (node.offset == basic_info.root)
-				changeRoot(node, newNode);
+
+			           //=====处理儿子节点的父亲结点链接=======//
+
+
+			if (node.offset == basic_info.root) {        //这是根的分裂
+				inter_node newRoot;
+				newRoot.parent = newRoot.son_type = 0;
+				newRoot.offset = basic_info.end;
+				basic_info.end += sizeof(inter_node);
+
+				newRoot.num = 2;
+				newRoot.data[0] = node.data[0];
+				newRoot.data[1] = newNode.data[0];
+
+				newRoot.son[0] = node.offset;
+				newRoot.son[1] = newNode.offset;
+
+				basic_info.root = node.parent = newNode.parent = newRoot.offset;
+
+				writeFile(&node, node.offset, 1, sizeof(inter_node));
+				writeFile(&newNode, newNode.offset, 1, sizeof(inter_node));
+				writeFile(&newRoot, newRoot.offset, 1, sizeof(inter_node));
+				writeFile(&basic_info, 0, 1, sizeof(basic_information));
+			}
 			else {
 				inter_node parent;
 
@@ -384,34 +414,13 @@ namespace sjtu {
 				writeFile(&newNode, newNode.offset, 1, sizeof(inter_node));
 
 				readFile(&parent, node.parent, 1, sizeof(inter_node));
-				internode_insert(parent, newNode.data[0], newNode.offset);
+
+				internode_insert(parent, newNode.data[0], newNode.offset);    //非根分裂向上维护
 			}
 			fflush(file);
 		}
 
-		void changeRoot(inter_node &node, inter_node &newNode) {
-			inter_node newRoot;
-			newRoot.parent = newRoot.son_type = 0;
-			newRoot.offset = basic_info.end;
-			basic_info.end += sizeof(inter_node);
-
-			newRoot.num = 2;
-			newRoot.data[0] = node.data[0];
-			newRoot.data[1] = newNode.data[0];
-
-			newRoot.son[0] = node.offset;
-			newRoot.son[1] = newNode.offset;
-
-			basic_info.root = node.parent = newNode.parent = newRoot.offset;
-
-			writeFile(&node, node.offset, 1, sizeof(inter_node));
-			writeFile(&newNode, newNode.offset, 1, sizeof(inter_node));
-			writeFile(&newRoot, newRoot.offset, 1, sizeof(inter_node));
-			writeFile(&basic_info, 0, 1, sizeof(basic_information));
-
-		}
-
-		OperationResult insertMin(leaf_node &leaf, int leafOffset, const Key &key, const Value &value) {
+		OperationResult min_insert(leaf_node &leaf, int leafOffset, const Key &key, const Value &value) {
 			readFile(&leaf, basic_info.head, 1, sizeof(leaf_node));
 			OperationResult t = leaf_insert(leaf, key, value);
 
@@ -452,11 +461,22 @@ namespace sjtu {
 			}
 		}
 
+		Value at(const Key &key) {
+			int leaf_offset = find_pos(key, basic_info.root);
+
+			leaf_node leaf;
+
+			readFile(&leaf, leaf_offset, 1, sizeof(leaf_node));
+			for (int i = 0; i < leaf.num; i++)
+				if (leaf.data[i].first == key)
+					return leaf.data[i].second;
+		}
+
 		// Erase: Erase the Key-Value
 		// Return Success if it is successfully erased
 		// Return Fail if the key doesn't exist in the database
 
-		OperationResult erase(const Key &key) {
+		OperationResult erase(const Key &key) {     //insert写到自闭
 			// TODO erase function
 			return Fail;  // If you can't finish erase part, just remaining here.
 		}
@@ -468,18 +488,6 @@ namespace sjtu {
 		// Return the number of <K,V> pairs
 		size_t size() const {
 			return basic_info.tree_size;
-		}
-
-		Value at(const Key &key) {
-			int leaf_offset = find_pos(key, basic_info.root);
-			if (leaf_offset == 0) throw "error";
-			leaf_node leaf;
-
-			readFile(&leaf, leaf_offset, 1, sizeof(leaf_node));
-			for (int i = 0; i < leaf.num; i++)
-				if (leaf.data[i].first == key)
-					return leaf.data[i].second;
-			throw "error";
 		}
 	};
 } // namespace sjtu
