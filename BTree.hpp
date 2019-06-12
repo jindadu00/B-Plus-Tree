@@ -17,8 +17,9 @@ using namespace std;
 namespace sjtu {
 	template<class Key, class Value, class Compare = std::less<Key> >
 	class BTree {
-		//static const int M = (4000 - 2 * sizeof(size_t) - sizeof(bool) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
+	//	static const int M = (4000 - 2 * sizeof(size_t) - sizeof(bool) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
 		//static const int L = (4000 - 4 * sizeof(size_t) - sizeof(int)) / (sizeof(Key) + sizeof(size_t)) - 1;
+
 		static const int M = 228;
 		static const int L = 32;
 
